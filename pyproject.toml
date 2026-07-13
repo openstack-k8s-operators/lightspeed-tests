@@ -1,0 +1,38 @@
+[project]
+name = "rhos-lightspeed-tests"
+version = "0.1.0"
+description = "Test suite for RHOS Lightspeed in RHOSO environments"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = {text = "Apache-2.0"}
+
+dependencies = [
+    "pytest>=8.0.0",
+    "requests>=2.31.0",
+    "pyyaml>=6.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.14",
+    "mypy>=1.15.0",
+    "pytest-cov>=6.0.0",
+    "pre-commit>=4.6.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.16,<0.12"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--verbose --junitxml=test-results.xml"
+python_files = "test_*.py"
+python_functions = "test_*"
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+extend-select = ["S"]

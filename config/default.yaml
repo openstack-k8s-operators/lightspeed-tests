@@ -1,0 +1,6 @@
+rhos_lightspeed:
+  base_url: "http://localhost:8080"
+  timeout: 30
+
+query:
+  default_question: "What is OpenStack?"
