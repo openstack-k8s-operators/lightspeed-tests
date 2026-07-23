@@ -4,10 +4,21 @@ import requests
 
 
 class RHOSLightspeedClient:
-    def __init__(self, base_url: str, timeout: int = 30) -> None:
-        self.base_url = base_url.rstrip("/")
+    def __init__(
+        self,
+        base_url: str,
+        api_prefix: str = "/v1",
+        token: str = "",
+        timeout: int = 30,
+        verify_tls: bool = False,
+    ) -> None:
+        self.base_url = base_url.rstrip("/") + api_prefix
         self.timeout = timeout
+        self.verify_tls = verify_tls
         self.session = requests.Session()
+        self.session.verify = verify_tls
+        if token:
+            self.session.headers["Authorization"] = f"Bearer {token}"
 
     def query(self, question: str) -> requests.Response:
         return self.session.post(

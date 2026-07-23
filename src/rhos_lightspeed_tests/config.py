@@ -19,4 +19,9 @@ def load_config(config_path: str | None = None) -> dict:
         config["rhos_lightspeed"]["base_url"],
     )
 
+    config["rhos_lightspeed"]["token"] = os.environ.get(
+        "RHOS_LIGHTSPEED_TOKEN",
+        "",
+    )
+
     return config

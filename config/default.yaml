@@ -1,6 +1,8 @@
 rhos_lightspeed:
-  base_url: "http://localhost:8080"
+  base_url: "https://lightspeed-app-server:8443"
+  api_prefix: "/v1"
   timeout: 30
+  verify_tls: false
 
 query:
   default_question: "What is OpenStack?"

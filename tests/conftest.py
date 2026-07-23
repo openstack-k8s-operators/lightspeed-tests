@@ -12,15 +12,12 @@ def config():
 
 
 @pytest.fixture
-def base_url(config):
-    return config["rhos_lightspeed"]["base_url"]
-
-
-@pytest.fixture
-def timeout(config):
-    return config["rhos_lightspeed"]["timeout"]
-
-
-@pytest.fixture
-def client(base_url, timeout):
-    return RHOSLightspeedClient(base_url, timeout=timeout)
+def client(config):
+    ls = config["rhos_lightspeed"]
+    return RHOSLightspeedClient(
+        base_url=ls["base_url"],
+        api_prefix=ls["api_prefix"],
+        token=ls["token"],
+        timeout=ls["timeout"],
+        verify_tls=ls["verify_tls"],
+    )
