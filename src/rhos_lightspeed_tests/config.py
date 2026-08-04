@@ -5,8 +5,9 @@ from pathlib import Path
 
 import yaml
 
-
-DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "default.yaml"
+DEFAULT_CONFIG_PATH = (
+    Path(__file__).resolve().parent.parent.parent / "config" / "default.yaml"
+)
 
 
 def load_config(config_path: str | None = None) -> dict:
