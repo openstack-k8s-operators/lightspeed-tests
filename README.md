@@ -28,6 +28,13 @@ Override the endpoint via environment variable:
 export RHOS_LIGHTSPEED_URL=http://rhos-lightspeed:8080
 ```
 
+If you run the tests outside of OpenShift, you need to have a running port forward
+for the `lightspeed-app-server` service. For example:
+
+```
+oc port-forward -n openstack-lightspeed svc/lightspeed-app-server 8443:8443
+```
+
 ## Running tests
 
 ```bash
