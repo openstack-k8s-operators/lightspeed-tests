@@ -71,10 +71,12 @@
       ansible.builtin.slurp:
         src: /var/run/secrets/kubernetes.io/serviceaccount/token
       register: sa_token_content
+      no_log: true
 
     - name: Set token as fact
       ansible.builtin.set_fact:
         lightspeed_token: "{{ sa_token_content.content | b64decode }}"
+      no_log: true
 
     - name: Install Python dependencies with uv
       ansible.builtin.command:
