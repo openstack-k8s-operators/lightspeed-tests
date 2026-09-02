@@ -1,0 +1,146 @@
+---
+- name: Run RHOS Lightspeed Tests
+  hosts: localhost
+  gather_facts: true
+  vars:
+    # Default variables (can be overridden via AnsibleTest CR)
+    lightspeed_url: "https://lightspeed-app-server.openstack-lightspeed.svc.cluster.local:8443"
+    lightspeed_timeout: 30
+    test_question: "What is OpenStack?"
+    pytest_args: "-v --tb=short --color=yes"
+    # Test-operator provides writable storage at this location
+    junit_xml_path: "/var/lib/AnsibleTests/external_files/test-results.xml"
+    # The test-operator clones git repos to this standard location
+    test_suite_path: "{{ ansible_env.HOME }}/ansible"
+
+  tasks:
+    - name: Display test configuration
+      ansible.builtin.debug:
+        msg:
+          - "Lightspeed URL: {{ lightspeed_url }}"
+          - "Test suite path: {{ test_suite_path }}"
+          - "JUnit XML output: {{ junit_xml_path }}"
+
+    - name: Check if uv is installed
+      ansible.builtin.command: which uv
+      register: uv_check
+      ignore_errors: true
+      changed_when: false
+
+    - name: Install uv package manager
+      when: uv_check.rc != 0
+      block:
+        - name: Download uv installer
+          ansible.builtin.get_url:
+            url: https://astral.sh/uv/install.sh
+            dest: /tmp/uv-installer.sh
+            mode: '0755'
+
+        - name: Run uv installer
+          ansible.builtin.shell: /tmp/uv-installer.sh || true
+          environment:
+            UV_INSTALL_DIR: "{{ ansible_env.HOME }}/.local/bin"
+          changed_when: true
+
+        - name: Verify uv binary exists
+          ansible.builtin.stat:
+            path: "{{ ansible_env.HOME }}/.local/bin/uv"
+          register: uv_binary
+          failed_when: not uv_binary.stat.exists
+
+        - name: Install Python 3.12 with uv
+          ansible.builtin.command:
+            cmd: "{{ ansible_env.HOME }}/.local/bin/uv python install 3.12"
+          changed_when: true
+
+        - name: Add uv to PATH
+          ansible.builtin.set_fact:
+            ansible_env: "{{ ansible_env | combine({'PATH': ansible_env.HOME + '/.local/bin:' + ansible_env.PATH}) }}"
+
+    - name: Verify test suite directory exists
+      ansible.builtin.stat:
+        path: "{{ test_suite_path }}"
+      register: test_suite_dir
+
+    - name: Fail if test suite not found
+      ansible.builtin.fail:
+        msg: "Test suite directory not found at {{ test_suite_path }}"
+      when: not test_suite_dir.stat.exists
+
+    - name: Read service account token
+      ansible.builtin.slurp:
+        src: /var/run/secrets/kubernetes.io/serviceaccount/token
+      register: sa_token_content
+      no_log: true
+
+    - name: Set token as fact
+      ansible.builtin.set_fact:
+        lightspeed_token: "{{ sa_token_content.content | b64decode }}"
+      no_log: true
+
+    - name: Install Python dependencies with uv
+      ansible.builtin.command:
+        cmd: "{{ ansible_env.HOME }}/.local/bin/uv sync"
+        chdir: "{{ test_suite_path }}"
+      environment:
+        UV_PYTHON: python3
+      changed_when: true
+
+    - name: Set environment variables for tests
+      ansible.builtin.set_fact:
+        test_env:
+          RHOS_LIGHTSPEED_URL: "{{ lightspeed_url }}"
+          RHOS_LIGHTSPEED_TOKEN: "{{ lightspeed_token }}"
+          PYTHONUNBUFFERED: "1"
+          PATH: "{{ ansible_env.HOME }}/.local/bin:{{ ansible_env.PATH }}"
+
+    - name: Run pytest tests
+      ansible.builtin.command:
+        cmd: >
+          {{ ansible_env.HOME }}/.local/bin/uv run pytest
+          {{ pytest_args }}
+          --junitxml={{ junit_xml_path }}
+        chdir: "{{ test_suite_path }}"
+      environment: "{{ test_env }}"
+      register: pytest_result
+      ignore_errors: true
+      changed_when: true
+
+    - name: Display pytest output
+      ansible.builtin.debug:
+        var: pytest_result.stdout_lines
+
+    - name: Display pytest errors (if any)
+      ansible.builtin.debug:
+        var: pytest_result.stderr_lines
+      when: pytest_result.stderr_lines | length > 0
+
+    - name: Check if test results file was created
+      ansible.builtin.stat:
+        path: "{{ junit_xml_path }}"
+      register: junit_file
+
+    - name: Display test results file status
+      ansible.builtin.debug:
+        msg: "JUnit XML results: {{ 'Created' if junit_file.stat.exists else 'Not found' }}"
+
+    - name: Parse test results summary
+      when: junit_file.stat.exists
+      block:
+        - name: Read JUnit XML file
+          ansible.builtin.slurp:
+            src: "{{ junit_xml_path }}"
+          register: junit_content
+
+        - name: Display test summary
+          ansible.builtin.debug:
+            msg: "Test results saved to {{ junit_xml_path }}"
+
+    - name: Fail if pytest failed
+      ansible.builtin.fail:
+        msg: "Pytest tests failed with return code {{ pytest_result.rc }}"
+      when: pytest_result.rc != 0
+
+    - name: Tests completed successfully
+      ansible.builtin.debug:
+        msg: "All RHOS Lightspeed tests passed successfully!"

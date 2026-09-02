@@ -1,9 +1,6 @@
 """HTTP client for RHOS Lightspeed API."""
 
-import openshift_client as oc
 import requests
-
-from .config import LS_NAMESPACE, LS_SERVICE_ACCOUNT
 
 
 class RHOSLightspeedClient:
@@ -21,17 +18,7 @@ class RHOSLightspeedClient:
         self.verify_tls = verify_tls
         self.session = requests.Session()
         self.session.verify = verify_tls
-        if not token:
-            token = self._create_token()
         self.session.headers["Authorization"] = f"Bearer {token}"
-
-    def _create_token(self) -> str:
-        with oc.tracking():
-            return (
-                oc.invoke("create", ["token", LS_SERVICE_ACCOUNT, "-n", LS_NAMESPACE])
-                .out()
-                .strip()
-            )
 
     def query(self, question: str) -> requests.Response:
         return self.session.post(

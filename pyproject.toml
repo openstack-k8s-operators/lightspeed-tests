@@ -10,7 +10,6 @@ dependencies = [
     "pytest>=8.0.0",
     "requests>=2.31.0",
     "pyyaml>=6.0.0",
-    "openshift-client>=2.0.5",
 ]
 
 [dependency-groups]
