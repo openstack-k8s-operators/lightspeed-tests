@@ -2,11 +2,10 @@
 
 Ansible playbooks to run the test suite.
 
-The ci-framework controller hook can run this playbook against a deployed instance.
-The hook supplies an existing test checkout, a Lightspeed API URL, and a
-short-lived client token file. It also provides the writable JUnit output path.
-Execution through test-operator requires an explicitly supplied client token
-file in the test Pod, as described below.
+The ci-framework Lightspeed stage runs this playbook inside an AnsibleTest Pod.
+It mounts the prepared test source, explicitly projects an authorized client
+token and collects JUnit and logs from the results PVC. The standalone example
+below clones a published branch; it does not select an unmerged Zuul checkout.
 
 ## `run_lightspeed_tests.yaml`
 
@@ -34,7 +33,7 @@ All parameters can be overridden via the `AnsibleTest` custom resource when runn
 * `lightspeed_token_file`: (String) File containing the client token. Default value: `/var/run/secrets/kubernetes.io/serviceaccount/token`
 * `lightspeed_timeout`: (Integer) Timeout in seconds for Lightspeed API requests. Default value: `30`
 * `test_question`: (String) Sample question for testing. Default value: `What is OpenStack?`
-* `pytest_args`: (String) Additional arguments to pass to pytest. Default value: `-v --tb=short --color=yes`. The CI controller hook explicitly selects `tests/integration` for its run.
+* `pytest_args`: (String) Additional arguments to pass to pytest. Default value: `-v --tb=short --color=yes`. The CI Lightspeed stage explicitly selects `tests/integration` for its run.
 * `junit_xml_path`: (String) Path where JUnit XML test results will be written. The test-operator provides writable storage at this location. Default value: `/var/lib/AnsibleTests/external_files/test-results.xml`
 * `test_suite_path`: (String) Path to the test suite directory. The test-operator clones git repositories to this location. Default value: `{{ ansible_env.HOME }}/ansible`
 
@@ -42,11 +41,11 @@ All parameters can be overridden via the `AnsibleTest` custom resource when runn
 
 The following example outlines execution through an `AnsibleTest` custom resource.
 The test-operator disables automatic service-account token mounting. Before
-using the example, provide an authorized client token through an explicit mount
-supported by your installed test-operator and set `lightspeed_token_file` to its
-path in the Pod. The example below does not include that mount configuration;
-`privileged: true` does not supply it. The controller hook supplies a temporary
-token file separately and does not use this example CR.
+using the example, create the authorization resources below. The explicit
+projected volume supplies a rotating token for the namespace's `default`
+ServiceAccount, which the current test-operator uses. `privileged: true` does
+not supply this token. The CI stage uses the same mount mechanism and reuses
+the existing OpenStack resources instead of the standalone placeholders.
 
 1\. Create a file `lightspeed-auth-resources.yaml` with the following content:
 
@@ -151,7 +150,7 @@ spec:
   ansibleInventory: |
     localhost ansible_connection=local ansible_python_interpreter=python3
 
-  debug: true
+  debug: false
   containerImage: quay.io/podified-antelope-centos9/openstack-ansible-tests:current-podified
 
   # Storage class for any PVCs (test results, logs)
@@ -159,7 +158,7 @@ spec:
   # if running in OpenShift cluster, use: local-storage
   storageClass: crc-csi-hostpath-provisioner
 
-  # Privileged execution does not mount a client token; configure that separately.
+  # Privileged execution and client authentication are separate settings.
   privileged: true
   # Resource limits for the test pod
   resources:
@@ -170,12 +169,30 @@ spec:
       cpu: 1000m
       memory: 1Gi
 
+  extraMounts:
+    - name: lightspeed-client
+      extraVol:
+        - propagation: [AnsibleTest]
+          extraVolType: Undefined
+          volumes:
+            - name: lightspeed-client-token
+              projected:
+                sources:
+                  - serviceAccountToken:
+                      path: token
+                      expirationSeconds: 3600
+          mounts:
+            - name: lightspeed-client-token
+              mountPath: /lightspeed-auth
+              readOnly: true
+
   # Variables passed to Ansible playbook
   ansibleVarFiles: |
     ---
     # Lightspeed service URL (defaults to in-cluster service)
     lightspeed_url: "https://lightspeed-app-server.openstack-lightspeed.svc.cluster.local:8443"
     lightspeed_timeout: 30
+    lightspeed_token_file: /lightspeed-auth/token
     # Same value as the Goose container's LIGHTSPEED_MODEL
     lightspeed_model: "<your configured model>"
     test_question: "What is OpenStack?"
@@ -184,5 +201,5 @@ spec:
     # JUnit XML output path (test-operator writable location)
     junit_xml_path: "/var/lib/AnsibleTests/external_files/test-results.xml"
 ```
-After configuring the token mount and `lightspeed_token_file`, run
+After creating the authorization and prerequisite resources, run
 `oc apply -f lightspeed-ansible-test-cr.yaml` to run the test suite.
