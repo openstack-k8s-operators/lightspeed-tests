@@ -11,7 +11,8 @@ uv sync
 
 ## Configuration
 
-Default settings are in `config/default.yaml`:
+Configure the service in `config/default.yaml`. For Goose API tests, set
+`goose.model` to the value of the Goose container's `LIGHTSPEED_MODEL`:
 
 ```yaml
 rhos_lightspeed:
@@ -20,13 +21,20 @@ rhos_lightspeed:
 
 query:
   default_question: "What is OpenStack?"
+
+goose:
+  model: "<same value as Goose LIGHTSPEED_MODEL>"
 ```
 
-Override the endpoint via environment variable:
+Supply the bearer token through the environment:
 
 ```bash
-export RHOS_LIGHTSPEED_URL=http://rhos-lightspeed:8080
+export RHOS_LIGHTSPEED_TOKEN="<Lightspeed bearer token>"
 ```
+
+`RHOS_LIGHTSPEED_URL` and `RHOS_LIGHTSPEED_MODEL` can override the URL and model
+from the config file. Use a service origin without `/v1`. With the test-operator
+playbook, supply `lightspeed_model`.
 
 If you run the tests outside of OpenShift, you need to have a running port forward
 for the `lightspeed-app-server` service. For example:
@@ -43,6 +51,12 @@ uv run pytest
 
 # Run integration tests only
 uv run pytest tests/integration/
+
+# Run Goose API tests
+uv run pytest tests/integration/test_goose_responses.py
+
+# Skip Goose tests that require a real LLM's answer content
+uv run pytest tests/integration/test_goose_responses.py -m "not llm_dependent"
 
 # Generate JUnit XML (automatic via pyproject.toml config)
 uv run pytest  # outputs test-results.xml
