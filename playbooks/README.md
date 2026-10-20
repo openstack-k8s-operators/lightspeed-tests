@@ -3,27 +3,41 @@
 Ansible playbooks to run the test suite.
 
 The ci-framework Lightspeed stage runs this playbook inside an AnsibleTest Pod.
-It mounts the prepared test source, explicitly projects an authorized client
-token and collects JUnit and logs from the results PVC. The standalone example
-below clones a published branch; it does not select an unmerged Zuul checkout.
+The test image clones the configured repository, while the job explicitly
+projects an authorized client token and collects JUnit and logs from the results
+PVC. Both the CI route and standalone example execute a published branch, not
+an unmerged Zuul checkout. Required runner fixes must be available in that branch
+before the job can use them.
 
 ## `run_lightspeed_tests.yaml`
 
 Executes the RHOS Lightspeed test suite using pytest. The playbook:
 
-1. Installs the [uv](https://astral.sh/uv) package manager if not already available
-2. Installs Python 3.12 using uv
-3. Verifies the supplied test checkout exists
-4. Reads the supplied token file for authentication
-5. Installs the dependencies recorded in `uv.lock` using uv
-6. Runs the pytest test suite with configurable arguments
-7. Generates JUnit XML test results for reporting
+1. Prepares artifact storage and removes stale results for this report path
+2. Records Git source identity when available and checks the source and token file
+3. Installs [uv](https://astral.sh/uv) if absent, Python 3.12 and locked dependencies
+4. Runs pytest with the configured inputs and token-file authentication
+5. Saves pytest/JUnit output and requires executed passing tests
+6. Saves runner diagnostics on success or failure
 
 Test results are stored in the location specified by `junit_xml_path`, which the test-operator can consume for reporting.
 Pytest output is also saved alongside it as `<junit_xml_path>.log`. The playbook
-fails if pytest returns a nonzero exit code or the JUnit report is missing.
+fails if pytest returns a nonzero exit code, or if the JUnit report is missing,
+malformed, empty, entirely skipped, or contains failures or errors. At least
+one test must have executed successfully. Reports and pytest output are retained
+before this final check, including when tests fail.
 An existing results directory retains its ownership and permissions, including
 storage mounted by test-operator. Missing results directories are created.
+
+`<junit_xml_path>.runner.log` records the source path, Git revision and tracked
+changes when the checkout has Git metadata, runner settings (token path only),
+pytest output and the task/message/output of a setup or test failure. A checkout
+without `.git` is labelled `unavailable`. The diagnostic log is written on
+success and failure once artifact storage is available. Failures remain nonzero.
+Old JUnit, pytest output and runner diagnostics are removed before setup, so a
+setup failure cannot leave a previous passing report for this report path.
+Image startup, repository cloning, fact gathering and inaccessible artifact
+storage can fail before these tasks run; inspect the Pod's container logs then.
 
 ### Parameters
 
@@ -143,7 +157,8 @@ spec:
   openStackConfigMap: test-operator-dummy-config
   openStackConfigSecret: test-operator-dummy-secret
   ansibleGitRepo: https://github.com/openstack-k8s-operators/lightspeed-tests
-  ansibleGitBranch: main
+  # Leave empty to use the cloned repository default branch.
+  ansibleGitBranch: ""
   ansiblePlaybookPath: playbooks/run_lightspeed_tests.yaml
 
   # Ansible inventory - run tests on localhost

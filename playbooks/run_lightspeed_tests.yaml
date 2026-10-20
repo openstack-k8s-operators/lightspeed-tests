@@ -15,63 +15,6 @@
     test_suite_path: "{{ ansible_env.HOME }}/ansible"
 
   tasks:
-    - name: Verify the test source and authentication file
-      ansible.builtin.stat:
-        path: "{{ item }}"
-      register: test_input
-      failed_when: not test_input.stat.exists
-      loop:
-        - "{{ test_suite_path }}/pyproject.toml"
-        - "{{ lightspeed_token_file }}"
-
-    - name: Find uv in PATH
-      ansible.builtin.command: which uv
-      register: uv_check
-      changed_when: false
-      failed_when: false
-
-    - name: Install uv when absent
-      when: uv_check.rc != 0
-      block:
-        - name: Download uv installer
-          ansible.builtin.get_url:
-            url: https://astral.sh/uv/install.sh
-            dest: /tmp/lightspeed-uv-installer.sh
-            mode: '0700'
-
-        - name: Run uv installer
-          ansible.builtin.command: sh /tmp/lightspeed-uv-installer.sh
-          environment:
-            # Avoid installer receipts in .config, which test-operator mounts may make unwritable.
-            UV_UNMANAGED_INSTALL: "{{ ansible_env.HOME }}/.local/bin"
-          changed_when: true
-
-    - name: Select the discovered or installed uv executable
-      ansible.builtin.set_fact:
-        lightspeed_uv: "{{ uv_check.stdout if uv_check.rc == 0 else ansible_env.HOME ~ '/.local/bin/uv' }}"
-
-    - name: Ensure Python 3.12 is available
-      ansible.builtin.command:
-        argv:
-          - "{{ lightspeed_uv }}"
-          - python
-          - install
-          - "3.12"
-      register: python_install
-      changed_when: "'Installed Python' in python_install.stderr"
-
-    - name: Install the locked test dependencies with Python 3.12
-      ansible.builtin.command:
-        argv:
-          - "{{ lightspeed_uv }}"
-          - sync
-          - --locked
-          - --python
-          - "3.12"
-        chdir: "{{ test_suite_path }}"
-      register: dependency_install
-      changed_when: "'Installed ' in dependency_install.stderr or 'Uninstalled ' in dependency_install.stderr"
-
     - name: Check whether the test artifact directory exists
       ansible.builtin.stat:
         path: "{{ junit_xml_path | dirname }}"
@@ -86,46 +29,171 @@
       # An existing PVC mount can be writable through fsGroup but owned by root.
       when: not lightspeed_artifact_directory.stat.exists
 
-    - name: Remove a stale JUnit report before testing
+    - name: Remove stale test reports and output before setup
       ansible.builtin.file:
-        path: "{{ junit_xml_path }}"
+        path: "{{ item }}"
         state: absent
+      loop:
+        - "{{ junit_xml_path }}"
+        - "{{ junit_xml_path }}.log"
+        - "{{ junit_xml_path }}.runner.log"
 
-    - name: Execute pytest and retain its failure for reporting
-      ansible.builtin.command:
-        cmd: >-
-          {{ lightspeed_uv | quote }} run --python 3.12 --no-sync pytest
-          {{ pytest_args }} --junitxml={{ junit_xml_path | quote }}
-        chdir: "{{ test_suite_path }}"
-      environment:
-        RHOS_LIGHTSPEED_URL: "{{ lightspeed_url }}"
-        RHOS_LIGHTSPEED_MODEL: "{{ lightspeed_model }}"
-        RHOS_LIGHTSPEED_TOKEN_FILE: "{{ lightspeed_token_file }}"
-        RHOS_LIGHTSPEED_TIMEOUT: "{{ lightspeed_timeout | string }}"
-        RHOS_LIGHTSPEED_QUESTION: "{{ test_question }}"
-        PYTHONUNBUFFERED: "1"
-      register: pytest_result
-      changed_when: true
-      failed_when: false
+    - name: Run the suite and preserve diagnostics
+      block:
+        - name: Check for Git source metadata
+          ansible.builtin.stat:
+            path: "{{ test_suite_path }}/.git"
+            follow: true
+          register: lightspeed_source_git
 
-    - name: Save pytest output
-      ansible.builtin.copy:
-        dest: "{{ junit_xml_path }}.log"
-        content: "{{ pytest_result.stdout }}\n{{ pytest_result.stderr }}\n"
-        mode: '0644'
+        - name: Read the test revision and tracked changes
+          ansible.builtin.command:
+            argv: "{{ item }}"
+            chdir: "{{ test_suite_path }}"
+          loop:
+            - [git, rev-parse, HEAD]
+            - [git, status, --porcelain, --untracked-files=no]
+          register: lightspeed_source_identity
+          changed_when: false
+          when: lightspeed_source_git.stat.exists
 
-    - name: Display pytest output
-      ansible.builtin.debug:
-        var: pytest_result.stdout_lines
+        - name: Verify the test source and authentication file
+          ansible.builtin.stat:
+            path: "{{ item }}"
+          register: test_input
+          failed_when: not test_input.stat.exists
+          loop:
+            - "{{ test_suite_path }}/pyproject.toml"
+            - "{{ lightspeed_token_file }}"
 
-    - name: Check for a JUnit report
-      ansible.builtin.stat:
-        path: "{{ junit_xml_path }}"
-      register: junit_report
+        - name: Find uv in PATH
+          ansible.builtin.command: which uv
+          register: uv_check
+          changed_when: false
+          failed_when: false
 
-    - name: Require passing tests and a JUnit report
-      ansible.builtin.assert:
-        that:
-          - pytest_result.rc == 0
-          - junit_report.stat.exists
-        fail_msg: "Lightspeed tests failed or did not produce a JUnit report. See {{ junit_xml_path }} and its .log companion."
+        - name: Install uv when absent
+          when: uv_check.rc != 0
+          block:
+            - name: Download uv installer
+              ansible.builtin.get_url:
+                url: https://astral.sh/uv/install.sh
+                dest: /tmp/lightspeed-uv-installer.sh
+                mode: '0700'
+
+            - name: Run uv installer
+              ansible.builtin.command: sh /tmp/lightspeed-uv-installer.sh
+              environment:
+                # Avoid installer receipts in .config, which test-operator mounts may make unwritable.
+                UV_UNMANAGED_INSTALL: "{{ ansible_env.HOME }}/.local/bin"
+              changed_when: true
+
+        - name: Select the discovered or installed uv executable
+          ansible.builtin.set_fact:
+            lightspeed_uv: "{{ uv_check.stdout if uv_check.rc == 0 else ansible_env.HOME ~ '/.local/bin/uv' }}"
+
+        - name: Ensure Python 3.12 is available
+          ansible.builtin.command:
+            argv:
+              - "{{ lightspeed_uv }}"
+              - python
+              - install
+              - "3.12"
+          register: python_install
+          changed_when: "'Installed Python' in python_install.stderr"
+
+        - name: Install the locked test dependencies with Python 3.12
+          ansible.builtin.command:
+            argv:
+              - "{{ lightspeed_uv }}"
+              - sync
+              - --locked
+              - --python
+              - "3.12"
+            chdir: "{{ test_suite_path }}"
+          register: dependency_install
+          changed_when: "'Installed ' in dependency_install.stderr or 'Uninstalled ' in dependency_install.stderr"
+
+        - name: Execute pytest and retain its failure for reporting
+          ansible.builtin.command:
+            cmd: >-
+              {{ lightspeed_uv | quote }} run --python 3.12 --no-sync pytest
+              {{ pytest_args }} --junitxml={{ junit_xml_path | quote }}
+            chdir: "{{ test_suite_path }}"
+          environment:
+            RHOS_LIGHTSPEED_URL: "{{ lightspeed_url }}"
+            RHOS_LIGHTSPEED_MODEL: "{{ lightspeed_model }}"
+            RHOS_LIGHTSPEED_TOKEN_FILE: "{{ lightspeed_token_file }}"
+            RHOS_LIGHTSPEED_TIMEOUT: "{{ lightspeed_timeout | string }}"
+            RHOS_LIGHTSPEED_QUESTION: "{{ test_question }}"
+            PYTHONUNBUFFERED: "1"
+          register: pytest_result
+          changed_when: true
+          failed_when: false
+
+        - name: Save pytest output
+          ansible.builtin.copy:
+            dest: "{{ junit_xml_path }}.log"
+            content: "{{ pytest_result.stdout }}\n{{ pytest_result.stderr }}\n"
+            mode: '0644'
+
+        - name: Display pytest output
+          ansible.builtin.debug:
+            var: pytest_result.stdout_lines
+
+        - name: Check for executed passing tests in the JUnit report
+          ansible.builtin.command:
+            argv:
+              - "{{ ansible_playbook_python }}"
+              - -c
+              - |
+                import json, sys, xml.etree.ElementTree as ET
+                cases = list(ET.parse(sys.argv[1]).iter('testcase'))
+                skipped = sum(case.find('skipped') is not None for case in cases)
+                failed = sum(case.find('failure') is not None or case.find('error') is not None for case in cases)
+                print(json.dumps({'tests': len(cases), 'skipped': skipped, 'failed': failed}))
+                sys.exit(0 if len(cases) > skipped and failed == 0 else 1)
+              - "{{ junit_xml_path }}"
+          register: junit_report
+          changed_when: false
+          failed_when: false
+
+        - name: Require passing tests and an executed passing JUnit report
+          ansible.builtin.assert:
+            that:
+              - pytest_result.rc == 0
+              - junit_report.rc == 0
+            fail_msg: >-
+              Lightspeed tests failed or produced no executed passing tests.
+              See {{ junit_xml_path }} and its .log companion.
+              Report check: {{ junit_report.stdout }} {{ junit_report.stderr }}
+
+      rescue:
+        - name: Propagate the runner failure
+          ansible.builtin.fail:
+            msg: >-
+              Lightspeed runner failed at {{ ansible_failed_task.name }}.
+              See {{ junit_xml_path }}.runner.log and any pytest report/output.
+
+      always:
+        - name: Save source identity and runner diagnostics
+          ansible.builtin.copy:
+            dest: "{{ junit_xml_path }}.runner.log"
+            content: |
+              Test source: {{ test_suite_path }}
+              Git revision: {{ lightspeed_source_identity.results[0].stdout | default('unavailable') }}
+              Tracked changes (empty means clean): {{ lightspeed_source_identity.results[1].stdout | default('unavailable') }}
+              Lightspeed URL: {{ lightspeed_url }}
+              Request timeout: {{ lightspeed_timeout }}
+              Client token file (path only): {{ lightspeed_token_file }}
+              Question: {{ test_question }}
+              Pytest arguments: {{ pytest_args }}
+              Outcome: {{ 'failed' if ansible_failed_task is defined else 'passed' }}
+              Failed task: {{ ansible_failed_task.name | default('') }}
+              Failure message: {{ ansible_failed_result.msg | default('') }}
+              Failure stdout: {{ ansible_failed_result.stdout | default('') }}
+              Failure stderr: {{ ansible_failed_result.stderr | default('') }}
+              Pytest exit code: {{ pytest_result.rc | default('not run') }}
+              {{ pytest_result.stdout | default('') }}
+              {{ pytest_result.stderr | default('') }}
+            mode: '0644'
