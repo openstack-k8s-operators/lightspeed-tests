@@ -20,9 +20,21 @@ def load_config(config_path: str | None = None) -> dict:
         config["rhos_lightspeed"]["base_url"],
     )
 
-    config["rhos_lightspeed"]["token"] = os.environ.get(
-        "RHOS_LIGHTSPEED_TOKEN",
-        "",
+    token_file = os.environ.get("RHOS_LIGHTSPEED_TOKEN_FILE")
+    config["rhos_lightspeed"]["token"] = (
+        Path(token_file).read_text().strip()
+        if token_file
+        else os.environ.get("RHOS_LIGHTSPEED_TOKEN", "")
+    )
+
+    timeout = int(
+        os.environ.get("RHOS_LIGHTSPEED_TIMEOUT", config["rhos_lightspeed"]["timeout"])
+    )
+    if timeout <= 0:
+        raise ValueError("Lightspeed request timeout must be positive")
+    config["rhos_lightspeed"]["timeout"] = timeout
+    config["query"]["default_question"] = os.environ.get(
+        "RHOS_LIGHTSPEED_QUESTION", config["query"]["default_question"]
     )
 
     goose = config.setdefault("goose", {})

@@ -9,6 +9,8 @@ regression guard: if OKP's internal document structure ever changes, this test
 should start failing so the leak is caught rather than silently reappearing.
 """
 
+from urllib.parse import unquote, urlsplit
+
 import pytest
 
 # Path segment unique to the OpenShift Virtualization documentation book in the
@@ -36,23 +38,27 @@ class TestOKPVirtualizationFilter:
         assert response.status_code == 200
 
         data = response.json()
-        rag_chunks = data.get("rag_chunks", [])
-        doc_urls = [
-            chunk.get("attributes", {}).get("doc_url", "") for chunk in rag_chunks
-        ]
-
+        rag_chunks = data.get("rag_chunks") or []
         assert rag_chunks, (
             f"Query {question!r} returned no rag_chunks; OKP retrieval may be broken"
         )
 
-        openstack_docs = [
-            url for url in doc_urls if OPENSTACK_DOC_MARKER in url.lower()
-        ]
+        # Tool retrieval retains provider metadata on chunks; resolved URLs live
+        # on document references, which may be deduplicated across chunks.
+        references = data.get("referenced_documents") or []
+        doc_urls = [reference.get("doc_url") for reference in references]
+        assert references and all(
+            isinstance(url, str) and url.strip() for url in doc_urls
+        ), f"Query {question!r} returned missing document-reference URLs: {doc_urls}"
+
+        # The offline service hostname contains 'openstack' for every product.
+        doc_paths = [unquote(urlsplit(url).path).lower() for url in doc_urls]
+        openstack_docs = [path for path in doc_paths if OPENSTACK_DOC_MARKER in path]
         assert openstack_docs, (
-            f"Query {question!r} returned no OpenStack-related rag_chunks: {doc_urls}"
+            f"Query {question!r} returned no OpenStack-related document references: {doc_urls}"
         )
 
-        leaked = [url for url in doc_urls if VIRTUALIZATION_BOOK_PATH in url]
+        leaked = [path for path in doc_paths if VIRTUALIZATION_BOOK_PATH in path]
         assert not leaked, (
             f"Query {question!r} retrieved OpenShift Virtualization docs: {leaked}"
         )
