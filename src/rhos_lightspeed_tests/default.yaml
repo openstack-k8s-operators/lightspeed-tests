@@ -10,3 +10,8 @@ query:
 goose:
   # Set RHOS_LIGHTSPEED_MODEL to the Goose container's LIGHTSPEED_MODEL value.
   model: ""
+
+prometheus:
+  # Set the URL to enable the telemetry end-to-end test.
+  url: ""
+  scrape_timeout: 120

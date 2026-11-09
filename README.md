@@ -44,6 +44,25 @@ for the `lightspeed-app-server` service. For example:
 oc port-forward -n openstack-lightspeed svc/lightspeed-app-server 8443:8443
 ```
 
+To enable the telemetry e2e test, set Prometheus URL:
+
+```bash
+export RHOS_LIGHTSPEED_PROMETHEUS_URL="https://metric-storage-prometheus.openstack.svc:9090"
+```
+
+If you run the telemetry test outside of OpenShift, you need to have a running port forward
+for the `metric-storage-prometheus` service. For example:
+
+```
+oc port-forward -n openstack svc/metric-storage-prometheus 9090:9090`
+```
+
+Then your Prometheus URL will be:
+
+```bash
+export RHOS_LIGHTSPEED_PROMETHEUS_URL="https://localhost:9090"
+```
+
 ## Running tests
 
 The command accepts pytest options and returns pytest's exit status. In a uv

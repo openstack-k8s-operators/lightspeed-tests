@@ -26,6 +26,14 @@ All parameters can be overridden via the `AnsibleTest` custom resource when runn
 * `pytest_args`: (String) Additional arguments to pass to pytest. Default value: `-v --tb=short --color=yes`
 * `junit_xml_path`: (String) Path where JUnit XML test results will be written. The test-operator provides writable storage at this location. Default value: `/var/lib/AnsibleTests/external_files/test-results.xml`
 * `test_suite_path`: (String) Path to the test suite directory. The test-operator clones git repositories to this location. Default value: `{{ ansible_env.HOME }}/ansible`
+* `prometheus_url`: (String) Telemetry Prometheus URL. Empty by default, which skips the telemetry end-to-end test.
+* `prometheus_scrape_timeout`: (Number) Time in seconds to poll for a positive collected LLM call counter. Default: `120`.
+
+To run telemetry coverage alongside integration tests, include both suites in
+`pytest_args`, for example:
+`-v --tb=short rhos_lightspeed_tests.tests.integration rhos_lightspeed_tests.tests.e2e`.
+The test pod must be able to reach Prometheus. The test disables TLS certificate
+verification for this CI endpoint.
 
 ### Usage
 
