@@ -9,6 +9,8 @@ regression guard: if OKP's internal document structure ever changes, this test
 should start failing so the leak is caught rather than silently reappearing.
 """
 
+from urllib.parse import unquote, urlsplit
+
 import pytest
 
 # Path segment unique to the OpenShift Virtualization documentation book in the
@@ -28,31 +30,48 @@ VIRTUALIZATION_ADJACENT_QUESTIONS = [
 
 class TestOKPVirtualizationFilter:
     @pytest.mark.parametrize("question", VIRTUALIZATION_ADJACENT_QUESTIONS)
-    def test_query_excludes_openshift_virtualization_docs(self, client, question):
-        """Virtualization-adjacent questions must not be grounded in OpenShift
-        Virtualization docs.
-        """
-        response = client.query(question)
+    def test_responses_excludes_openshift_virtualization_docs(self, client, question):
+        """Check the configured OKP document filter through the Responses API."""
+        response = client.responses(
+            {
+                "input": question,
+                "store": False,
+                "stream": False,
+                "tool_choice": {"type": "file_search"},
+                "include": ["file_search_call.results"],
+            }
+        )
         assert response.status_code == 200
 
-        data = response.json()
-        rag_chunks = data.get("rag_chunks", [])
-        doc_urls = [
-            chunk.get("attributes", {}).get("doc_url", "") for chunk in rag_chunks
+        results = [
+            result
+            for item in response.json().get("output") or []
+            if item.get("type") == "file_search_call"
+            for result in item.get("results") or []
         ]
-
-        assert rag_chunks, (
-            f"Query {question!r} returned no rag_chunks; OKP retrieval may be broken"
+        assert results, (
+            f"Question {question!r} returned no file search results; "
+            "OKP retrieval may be broken"
         )
 
-        openstack_docs = [
-            url for url in doc_urls if OPENSTACK_DOC_MARKER in url.lower()
-        ]
+        # OKP uses source_path offline and reference_url for online documents.
+        doc_paths = []
+        for result in results:
+            attributes = result.get("attributes") or {}
+            reference = attributes.get("source_path") or attributes.get("reference_url")
+            assert isinstance(reference, str) and reference.strip(), (
+                f"Question {question!r} returned a result without a document path"
+            )
+            # The service hostname may contain 'openstack' for every product.
+            doc_paths.append(unquote(urlsplit(reference).path).lower())
+
+        assert all(doc_paths), f"Question {question!r} returned empty document paths"
+        openstack_docs = [path for path in doc_paths if OPENSTACK_DOC_MARKER in path]
         assert openstack_docs, (
-            f"Query {question!r} returned no OpenStack-related rag_chunks: {doc_urls}"
+            f"Question {question!r} returned no OpenStack-related documents: {doc_paths}"
         )
 
-        leaked = [url for url in doc_urls if VIRTUALIZATION_BOOK_PATH in url]
+        leaked = [path for path in doc_paths if VIRTUALIZATION_BOOK_PATH in path]
         assert not leaked, (
-            f"Query {question!r} retrieved OpenShift Virtualization docs: {leaked}"
+            f"Question {question!r} retrieved OpenShift Virtualization docs: {leaked}"
         )
