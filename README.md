@@ -23,7 +23,7 @@ as an alias.
 
 ## Configuration
 
-The tests load the default config from `src/rhos_lightspeed_tests/default.yaml`.
+The tests load the default config from `src/rhos_lightspeed_tests/lib/default.yaml`.
 Configure the service through environment variables:
 
 ```bash
@@ -93,13 +93,30 @@ lightspeed-tests -m ""
 lightspeed-tests -k integration
 
 # Run one installed test module
-lightspeed-tests rhos_lightspeed_tests.tests.integration.test_query_endpoint
+lightspeed-tests rhos_lightspeed_tests.lightspeed_tests.integration.test_query_endpoint
 
 # Run one test file from a checkout
-lightspeed-tests src/rhos_lightspeed_tests/tests/integration/test_query_endpoint.py
+lightspeed-tests src/rhos_lightspeed_tests/lightspeed_tests/integration/test_query_endpoint.py
 
 # Run Goose API tests
 lightspeed-tests -k goose
+
+# Run tests for OpenStack Assistant (goose). This requires either in-cluster
+# service-account credentials or a kubeconfig with pod/exec access. See the
+# following environment variables configure the OpenStack Assistant test:
+#   * RHOS_LIGHTSPEED_OPENSHIFT_SERVICE_ACCOUNT_TOKEN_PATH: sets the path to
+#     the in-cluster service-account token used to authenticate pod/exec calls.
+#   * RHOS_LIGHTSPEED_OPENSHIFT_API_SERVER_CA_CERT_PATH: sets the path to
+#     the cluster CA certificate used to verify the API server for pod/exec calls.
+#   * RHOS_LIGHTSPEED_OPENSHIFT_KUBECONFIG_PATH: sets the kubeconfig used for
+#     pod/exec access when the test is run outside the cluster.
+#   * RHOS_LIGHTSPEED_OPENSHIFT_TIMEOUT: sets the maximum time, in seconds, the
+#     test allows for OpenShift API and pod/exec operations.
+#   * RHOS_LIGHTSPEED_OPENSTACK_ASSISTANT_POD_NAMESPACE: sets the namespace of
+#     the OpenStack Assistant pod that the test connects to.
+#   * RHOS_LIGHTSPEED_OPENSTACK_ASSISTANT_POD_NAME: sets the name of the
+#     OpenStack Assistant pod that the test connects to.
+lightspeed-tests -m openstack_assistant
 
 # Skip Goose tests that require a real LLM's answer content
 lightspeed-tests -k goose -m "not llm_dependent"
@@ -116,10 +133,10 @@ require a configured model.
 
 ## Adding tests
 
-1. Create test file in appropriate directory:
-   - `src/rhos_lightspeed_tests/tests/unit/` - Fast, isolated suite tests
-   - `src/rhos_lightspeed_tests/tests/integration/` - Tests requiring deployed service
-   - `src/rhos_lightspeed_tests/tests/e2e/` - Full end-to-end scenarios
+1. Create test file in the appropriate directory:
+   - `src/rhos_lightspeed_tests/tests/lib/` - Fast, isolated tests for shared library code
+   - `src/rhos_lightspeed_tests/lightspeed_tests/integration/` - Tests requiring a deployed service
+   - `src/rhos_lightspeed_tests/lightspeed_tests/e2e/` - Full end-to-end scenarios
 
 2. Use the shared fixtures from `conftest.py`:
    ```python
@@ -139,15 +156,18 @@ Build a source distribution and wheel with `uv build`.
 rhos-lightspeed-tests/
 ├── src/rhos_lightspeed_tests/       # Installed package
 │   ├── __init__.py                  # lightspeed-tests entry point
-│   ├── client.py                    # API client (query, health)
-│   ├── config.py                    # Loads defaults and environment overrides
-│   ├── default.yaml                 # Bundled default configuration
-│   ├── pytest.ini                   # Bundled pytest settings and default suite
+│   ├── lib/                         # Shared test library
+│   │   ├── acp.py                   # OpenStack Assistant ACP client
+│   │   ├── client.py                # API client (query, health)
+│   │   ├── config.py                # Loads defaults and environment overrides
+│   │   └── default.yaml             # Bundled default configuration
+│   ├── lightspeed_tests/             # Service-facing test suite
+│   │   ├── conftest.py              # Shared fixtures (config, client)
+│   │   ├── pytest.ini               # Bundled pytest settings and default suite
+│   │   ├── integration/             # Tests requiring a deployed service
+│   │   └── e2e/                     # Full end-to-end scenarios
 │   └── tests/
-│       ├── conftest.py              # Shared fixtures (config, client)
-│       ├── unit/
-│       ├── integration/
-│       └── e2e/
+│       └── lib/                     # Unit tests for shared library code
 ├── pyproject.toml
 └── README.md
 ```
