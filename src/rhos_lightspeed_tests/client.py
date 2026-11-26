@@ -41,6 +41,20 @@ class RHOSLightspeedClient:
             timeout=self.timeout,
         )
 
+    def get_conversation(self, conversation_id: str) -> requests.Response:
+        """Retrieve a saved conversation."""
+        return self.session.get(
+            f"{self.base_url}/v2/conversations/{conversation_id}",
+            timeout=self.timeout,
+        )
+
+    def delete_conversation(self, conversation_id: str) -> requests.Response:
+        """Delete a conversation created by a test."""
+        return self.session.delete(
+            f"{self.base_url}/v2/conversations/{conversation_id}",
+            timeout=self.timeout,
+        )
+
     def metrics(self) -> requests.Response:
         return self.session.get(
             f"{self.base_url}/metrics",
